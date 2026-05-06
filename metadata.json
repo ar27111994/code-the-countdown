@@ -1,0 +1,6 @@
+{
+  "name": "I/O 2026 Particle Countdown",
+  "description": "An interactive, physics-based particle countdown for Google I/O 2026.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
