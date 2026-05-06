@@ -651,14 +651,44 @@ class ParticleEngine {
   };
 
   resize = () => {
-    this.width = window.innerWidth;
-    this.height = window.innerHeight;
+    const newWidth = window.innerWidth;
+    const newHeight = window.innerHeight;
+    
+    // Protect against 0/invalid dimensions
+    if (newWidth <= 0 || newHeight <= 0) return;
+
+    const oldWidth = this.width || newWidth;
+    const oldHeight = this.height || newHeight;
+    
+    this.width = newWidth;
+    this.height = newHeight;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = this.width * this.dpr;
     this.canvas.height = this.height * this.dpr;
     this.canvas.style.width = `${this.width}px`;
     this.canvas.style.height = `${this.height}px`;
+
+    if (this.overlayCtx) {
+       const overlayCanvas = this.overlayCtx.canvas;
+       overlayCanvas.width = this.width * this.dpr;
+       overlayCanvas.height = this.height * this.dpr;
+       overlayCanvas.style.width = `${this.width}px`;
+       overlayCanvas.style.height = `${this.height}px`;
+       this.overlayCtx.scale(this.dpr, this.dpr);
+    }
+
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+
+    // Adjust orbit radii proportionally to the window size change
+    const scaleFactor = Math.min(this.width / oldWidth, this.height / oldHeight);
+    if (!isNaN(scaleFactor) && scaleFactor > 0 && scaleFactor !== 1) {
+        for (let i = 0; i < this.numParticles; i++) {
+            this.orbitRadius[i] *= scaleFactor;
+            // Also shift current positions slightly to maintain visual continuity
+            this.x[i] = (this.x[i] / oldWidth) * this.width;
+            this.y[i] = (this.y[i] / oldHeight) * this.height;
+        }
+    }
   };
 
   onMouseMove = (e: MouseEvent) => {
@@ -1314,6 +1344,17 @@ export default function CodeTheCountdown() {
       document.exitFullscreen();
     }
   };
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (engineRef.current && (index >= 0 || isLive)) {
+         const theme = THEMES[index >= 0 ? index % THEMES.length : 0];
+         engineRef.current.setText(isLive ? liveDays : MESSAGES[index], theme);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [index, isLive, liveDays]);
 
   useEffect(() => {
     if (canvasRef.current && overlayRef.current) {
