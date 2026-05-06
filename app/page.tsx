@@ -46,8 +46,10 @@ uniform vec2 u_resolution;
 uniform vec2 u_shake;
 uniform vec2 u_parallax;
 uniform float u_dpr;
+uniform float u_time;
 
 varying vec3 vColor;
+varying float vTwinkle;
 
 void main() {
   vec2 clipSpace = ((position / u_resolution) * 2.0) - 1.0;
@@ -56,12 +58,16 @@ void main() {
   gl_Position = vec4(pos * vec2(1.0, -1.0), 0.0, 1.0);
   gl_PointSize = size * u_dpr;
   vColor = color;
+  
+  // Twinkle logic
+  vTwinkle = 0.8 + 0.2 * sin(u_time * 0.005 + size * 1000.0);
 }
 `;
 
 const pointFS = `
 precision mediump float;
 varying vec3 vColor;
+varying float vTwinkle;
 
 void main() {
   vec2 coord = gl_PointCoord - vec2(0.5);
@@ -70,12 +76,12 @@ void main() {
   
   // Soft glowing core with sharper edge
   float alpha = smoothstep(0.5, 0.0, dist);
-  alpha *= (1.0 - smoothstep(0.4, 0.5, dist));
+  alpha *= (1.0 - smoothstep(0.4, 0.5, dist)) * vTwinkle;
   
   // 17. Hero star lens flares
   float flare = smoothstep(0.1, 0.0, abs(coord.x)) * smoothstep(0.5, 0.0, abs(coord.y));
   flare += smoothstep(0.1, 0.0, abs(coord.y)) * smoothstep(0.5, 0.0, abs(coord.x));
-  alpha = max(alpha, flare * alpha);
+  alpha = max(alpha, flare * alpha * vTwinkle);
   
   gl_FragColor = vec4(vColor, alpha);
 }
@@ -116,7 +122,11 @@ void main() {
   // Subtle film grain
   col += (noise(p + u_audio_intensity) - 0.5) * 0.02;
 
-    if (u_galaxy_factor > 0.0) {
+  // Starfield noise
+  float stars = pow(noise(p * 300.0), 30.0) * 0.1;
+  col += stars;
+
+  if (u_galaxy_factor > 0.0) {
     // Gravitational Lensing / Accretion Disk (Interstellar styling)
     float diskScale = 0.25 + u_audio_intensity * 0.3;
     
@@ -196,8 +206,6 @@ function sampleTextCoordinates(text: string, width: number, height: number, reso
   let testFontSize = 100;
   ctx.font = `900 ${testFontSize}px "Arial Black", "Impact", system-ui, sans-serif`;
   let textWidth = ctx.measureText(text).width || (testFontSize * text.length * 0.6);
-  // Further reduce scaling coefficients to make 100% sure the text does not hit right canvas edge.
-  // We use 0.5 instead of 0.65, giving plenty of margin.
   let scale = Math.min((width * 0.5) / textWidth, (height * 0.5) / testFontSize);
   let fontSize = testFontSize * scale;
       
@@ -208,12 +216,24 @@ function sampleTextCoordinates(text: string, width: number, height: number, reso
   ctx.fillText(text, width / 2, height / 2);
 
   const imageData = ctx.getImageData(0, 0, width, height).data;
-  const targets = [];
+  const targets: {x: number, y: number, isOutline: boolean}[] = [];
 
   for (let y = 0; y < height; y += resolution) {
     for (let x = 0; x < width; x += resolution) {
       if (imageData[(y * width + x) * 4 + 3] > 128) {
-        targets.push({ x, y });
+        // Simple edge detection: check neighbors
+        let isOutline = false;
+        if (
+          x - resolution < 0 || x + resolution >= width || 
+          y - resolution < 0 || y + resolution >= height ||
+          imageData[((y - resolution) * width + x) * 4 + 3] <= 128 ||
+          imageData[((y + resolution) * width + x) * 4 + 3] <= 128 ||
+          imageData[(y * width + (x - resolution)) * 4 + 3] <= 128 ||
+          imageData[(y * width + (x + resolution)) * 4 + 3] <= 128
+        ) {
+          isOutline = true;
+        }
+        targets.push({ x, y, isOutline });
       }
     }
   }
@@ -244,6 +264,13 @@ class SynthEngine {
     
     this.setupDrone();
     this.initialized = true;
+  }
+
+  destroy() {
+    if (this.droneOsc) this.droneOsc.stop();
+    if (this.droneMod) this.droneMod.stop();
+    if (this.ctx) this.ctx.close();
+    this.initialized = false;
   }
 
   getFrequencyData(): Uint8Array {
@@ -607,6 +634,19 @@ class ParticleEngine {
     this.canvas.removeEventListener('mouseout', this.onMouseOut);
     this.canvas.removeEventListener('touchend', this.onMouseOut);
     cancelAnimationFrame(this.animationFrameId);
+
+    const gl = this.gl;
+    if (gl) {
+        gl.deleteBuffer(this.posBuffer);
+        gl.deleteBuffer(this.colorBuffer);
+        gl.deleteBuffer(this.sizeBuffer);
+        gl.deleteBuffer(this.quadBuffer);
+        gl.deleteProgram(this.pointProg);
+        gl.deleteProgram(this.quadProg);
+    }
+    if (this.synth) {
+      this.synth.destroy();
+    }
   };
 
   resize = () => {
@@ -728,21 +768,30 @@ class ParticleEngine {
             this.friction[i] = 0.75 + Math.random() * 0.1; 
             
             if (!reducedMotion) {
-                if (!wasTextMode || Math.random() > 0.5) {
-                    this.vx[i] += (Math.random() - 0.5) * 15;
-                    this.vy[i] += (Math.random() - 0.5) * 15;
+                if (!wasTextMode || Math.random() > 0.3) {
+                    this.vx[i] += (Math.random() - 0.5) * 35;
+                    this.vy[i] += (Math.random() - 0.5) * 35;
                 }
             }
             const distToCenter = Math.sqrt(Math.pow(t.x - centerX, 2) + Math.pow(t.y - centerY, 2));
             const normalizedDist = distToCenter / maxDist;
-            this.targetSize[i] = (0.5 + normalizedDist * 1.5) * (0.5 + Math.random() * 1.0);
-
-            let c = targetColors[Math.floor(Math.random() * targetColors.length)];
-            const ci = i * 3;
-            // Tone down text particles so they aren't intensely bright
-            this.targetColor[ci] = c[0] * 0.35;
-            this.targetColor[ci+1] = c[1] * 0.35;
-            this.targetColor[ci+2] = c[2] * 0.35;
+            
+            // Highlight outline particles
+            if (t.isOutline) {
+                this.targetSize[i] = (2.0 + normalizedDist * 1.5) * (0.8 + Math.random() * 0.4);
+                let c = targetColors[0]; // Use first theme color for outline
+                const ci = i * 3;
+                this.targetColor[ci] = c[0] * 1.2; // Brighter
+                this.targetColor[ci+1] = c[1] * 1.2;
+                this.targetColor[ci+2] = c[2] * 1.2;
+            } else {
+                this.targetSize[i] = (0.5 + normalizedDist * 1.5) * (0.5 + Math.random() * 1.0);
+                let c = targetColors[Math.floor(Math.random() * targetColors.length)];
+                const ci = i * 3;
+                this.targetColor[ci] = c[0] * 0.3; // Dimmer fill
+                this.targetColor[ci+1] = c[1] * 0.3;
+                this.targetColor[ci+2] = c[2] * 0.3;
+            }
 
             targetIdx++;
         } else {
@@ -994,6 +1043,7 @@ class ParticleEngine {
     gl.uniform2f(gl.getUniformLocation(this.pointProg, 'u_resolution'), this.width, this.height);
     gl.uniform2f(gl.getUniformLocation(this.pointProg, 'u_shake'), this.shakeX / this.width, this.shakeY / this.height);
     gl.uniform2f(gl.getUniformLocation(this.pointProg, 'u_parallax'), this.parallax.x, this.parallax.y);
+    gl.uniform1f(gl.getUniformLocation(this.pointProg, 'u_time'), performance.now());
     
     // Scale point size based on audio average
     const pulseFactor = avgFreq / 255.0;
@@ -1238,7 +1288,7 @@ export default function CodeTheCountdown() {
         const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
         const mins = Math.floor((diff / 1000 / 60) % 60);
         const secs = Math.floor((diff / 1000) % 60);
-        setLiveDays(days > 0 ? `${days}d` : "SOON");
+        setLiveDays(days > 0 ? `D-${days}` : "I / O");
         setLiveTime(`${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
       };
       updateLive();
@@ -1271,12 +1321,6 @@ export default function CodeTheCountdown() {
     };
   }, []);
   
-  useEffect(() => {
-    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
-  }, []);
-
   const handleNext = useCallback(() => {
       setStep(index + 1);
   }, [index, setStep]);
@@ -1404,22 +1448,36 @@ export default function CodeTheCountdown() {
            </motion.div>
         )}
         
-        {isLive && index !== 10 && index !== -1 && (
+        {isLive && index !== 10 && (
            <motion.div 
              initial={{ opacity: 0 }}
              animate={{ opacity: 1 }}
-             className="absolute top-[65%] w-full text-center text-white/50 text-xl font-mono tracking-widest pointer-events-none z-20"
+             className="absolute top-[65%] w-full text-center text-white/50 text-xl font-mono tracking-widest pointer-events-none z-20 flex flex-col items-center gap-2"
            >
+             <div className="flex items-center gap-2 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20 mb-2">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-[10px] text-red-400 font-bold uppercase tracking-tighter">Live Stream Countdown</span>
+             </div>
              {liveTime}
            </motion.div>
         )}
       </div>
       
       <div className={`absolute top-8 right-8 flex gap-4 pointer-events-auto z-20 items-center transition-opacity duration-500 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
-         <button onClick={() => setIsMuted(!isMuted)} className="text-white/60 hover:text-white transition-colors" title="Toggle Sound">
+         <button 
+           onClick={() => setIsMuted(!isMuted)} 
+           className="text-white/60 hover:text-white transition-colors" 
+           title="Toggle Sound"
+           aria-label={isMuted ? "Unmute" : "Mute"}
+         >
            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
          </button>
-         <button onClick={takeScreenshot} className="text-white/60 hover:text-white transition-colors" title="Screenshot">
+         <button 
+           onClick={takeScreenshot} 
+           className="text-white/60 hover:text-white transition-colors" 
+           title="Screenshot"
+           aria-label="Take Screenshot"
+         >
            <Camera className="w-5 h-5" />
          </button>
       </div>
@@ -1452,6 +1510,7 @@ export default function CodeTheCountdown() {
           onClick={handleReset}
           className="p-3 bg-white/5 hover:bg-white/10 text-white flex-shrink-0 rounded-full transition-colors active:scale-95"
           title="Back to Galaxy (R)"
+          aria-label="Reset Galaxy"
         >
           <RotateCcw className="w-5 h-5" />
         </button>
@@ -1460,6 +1519,7 @@ export default function CodeTheCountdown() {
           onClick={togglePlay}
           className="p-4 bg-indigo-600 hover:bg-indigo-500 text-white aspect-square rounded-full flex-shrink-0 transition-colors shadow-lg shadow-indigo-500/25 active:scale-95"
           title={isPlaying ? "Pause (Space)" : "Play Countdown (Space)"}
+          aria-label={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? (
             <Pause className="w-6 h-6 fill-current" />
@@ -1487,7 +1547,17 @@ export default function CodeTheCountdown() {
         </button>
 
         <button
-          onClick={() => { setIsLive(!isLive); setStep(-1); setIsPlaying(false); }}
+          onClick={() => { 
+            const nextLive = !isLive;
+            setIsLive(nextLive); 
+            if (nextLive) {
+               setStep(0);
+               setIsPlaying(false);
+            } else {
+               setStep(-1);
+               setIsPlaying(false);
+            }
+          }}
           className={`p-3 text-white flex-shrink-0 rounded-full transition-colors active:scale-95 flex items-center gap-2 text-sm font-bold ${isLive ? 'bg-red-500/20 text-red-400 border border-red-500/50' : 'bg-white/5 hover:bg-white/10'}`}
           title="Live I/O 2026 Countdown"
         >
