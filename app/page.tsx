@@ -130,24 +130,16 @@ void main() {
     // Gravitational Lensing / Accretion Disk (Interstellar styling)
     float diskScale = 0.25 + u_audio_intensity * 0.3;
     
-    // Accretion disk edge glow with "light streaks"
-    float angle = atan(p.y, p.x);
-    
-    // Add intricate procedural streaks
-    float streaks = sin(angle * 30.0 + u_audio_intensity * 10.0) * 0.05 
-                  + cos(angle * 15.0 - u_audio_intensity * 5.0) * 0.05;
-                  
-    // Deform disk based on distance to imitate black hole warping
+    // Accretion disk edge glow
     float warpedD = d * (1.0 - (0.05 / (d + 0.01)));
+    float disk = smoothstep(0.1, 0.5, warpedD) * smoothstep(0.8, 0.4, warpedD);
     
-    float disk = smoothstep(0.12, 0.4 + streaks, warpedD) * smoothstep(0.9 + u_audio_intensity * 0.5, 0.3, warpedD);
-    
-    // Swirling motion based on position and audio
-    float swirl = sin(warpedD * 25.0 - u_audio_intensity * 12.0 + angle * 3.0) * 0.5 + 0.5;
+    // Swirling motion
+    float swirl = sin(warpedD * 15.0 - u_audio_intensity * 6.0 + atan(p.y, p.x) * 2.0) * 0.5 + 0.5;
     vec3 galaxyCol = mix(vec3(0.5, 0.1, 0.9), vec3(0.1, 0.8, 1.0), swirl);
     
-    // Golden-orange glow on the inner edge
-    vec3 innerEnergy = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 1.0, 1.0), smoothstep(0.2, 0.15, warpedD));
+    // Smooth energy glow
+    vec3 innerEnergy = mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 1.0, 1.0), smoothstep(0.25, 0.1, warpedD));
     galaxyCol = mix(galaxyCol, innerEnergy, smoothstep(0.3, 0.15, warpedD));
     
     col += galaxyCol * disk * u_galaxy_factor * (0.8 + u_audio_intensity * 1.5);
@@ -1099,18 +1091,8 @@ class ParticleEngine {
         ctx.globalAlpha = 1.0;
         ctx.globalCompositeOperation = 'source-over';
         
-        // 15. Shockwave ring
-        if (ct < 1000 && !reducedMotion) {
-            const progress = ct / 1000;
-            const r = progress * Math.max(this.width, this.height);
-            ctx.beginPath();
-            ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            ctx.strokeStyle = `rgba(255, 255, 255, ${1.0 - Math.pow(progress, 0.5)})`;
-            ctx.lineWidth = 4 + (1 - progress) * 20;
-            ctx.stroke();
-
-            // 16. Chromatic aberration flash
-            if (ct < 300) {
+        // 16. Chromatic aberration flash
+        if (ct < 300) {
                 const flash = 1.0 - (ct / 300);
                 ctx.globalCompositeOperation = 'screen';
                 ctx.fillStyle = `rgba(255, 0, 0, ${0.18 * flash})`;
@@ -1119,27 +1101,6 @@ class ParticleEngine {
                 ctx.fillRect((Math.random()-0.5)*10, (Math.random()-0.5)*10, this.width, this.height);
                 ctx.globalCompositeOperation = 'source-over';
             }
-        }
-        
-        // Audio visualiser ring
-        if (avgFreq > 5 && this.galaxyFactor > 0.01) {
-            const rBase = Math.min(this.width, this.height) * 0.15 * 1.05;
-            ctx.beginPath();
-            for (let i = 0; i <= 64; i++) {
-                const fIndex = i === 64 ? 0 : i;
-                const amp = this.freqData[fIndex] / 255.0;
-                const angle = (i / 64) * Math.PI * 2;
-                const rLine = rBase + amp * 30 * this.galaxyFactor;
-                const lx = cx + Math.cos(angle) * rLine;
-                const ly = cy + Math.sin(angle) * rLine * 0.6;
-                if (i === 0) ctx.moveTo(lx, ly);
-                else ctx.lineTo(lx, ly);
-            }
-            ctx.closePath();
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 * this.galaxyFactor})`;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-        }
         
         // 14. Nebula blobs
         ctx.globalCompositeOperation = 'screen';
