@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default [
+const config = [
   ...next,
   {
     ignores: ["dist/**", ".next/**", "out/**"]
   }
 ];
+
+export default config;

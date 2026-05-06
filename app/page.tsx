@@ -1504,7 +1504,7 @@ export default function CodeTheCountdown() {
       <div className={`absolute bottom-0 w-full bg-black z-30 transition-all duration-1000 ${isPlaying && !isLive ? 'h-12' : 'h-0'}`} />
 
       <motion.div 
-        className={`absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 z-20 transition-opacity duration-500 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute bottom-16 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 z-40 transition-opacity duration-500 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.5, type: 'spring' }}
