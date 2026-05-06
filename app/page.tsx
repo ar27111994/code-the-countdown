@@ -197,6 +197,7 @@ function createProgram(gl: WebGLRenderingContext, vs: string, fs: string) {
 }
 
 function sampleTextCoordinates(text: string, width: number, height: number, resolution: number) {
+  if (width <= 0 || height <= 0) return [];
   const offscreen = document.createElement('canvas');
   offscreen.width = width;
   offscreen.height = height;
@@ -1061,7 +1062,10 @@ class ParticleEngine {
         const scale = 1.05;
         const dw = this.width * scale;
         const dh = this.height * scale;
-        ctx.drawImage(this.canvas, (this.width - dw) / 2, (this.height - dh) / 2, dw, dh);
+        
+        if (this.canvas.width > 0 && this.canvas.height > 0 && dw > 0 && dh > 0) {
+            ctx.drawImage(this.canvas, (this.width - dw) / 2, (this.height - dh) / 2, dw, dh);
+        }
         ctx.globalAlpha = 1.0;
         ctx.globalCompositeOperation = 'source-over';
         
