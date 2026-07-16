@@ -17,7 +17,7 @@
     "lucide-react": "^0.553.0",
     "motion": "^12.23.24",
     "next": "15.5.18",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.16",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "tailwind-merge": "^3.3.1",
